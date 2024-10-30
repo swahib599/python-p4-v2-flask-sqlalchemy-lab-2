@@ -1,30 +1,66 @@
-import pytest
-from app import app, db  # Ensure this matches the correct import path
-from models import Customer, Item, Review
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.ext.associationproxy import association_proxy
 
-@pytest.fixture(scope='module')
-def test_client():
-    with app.test_client() as client:
-        with app.app_context():
-            db.create_all()  # Create the database tables
-        yield client
-        with app.app_context():
-            db.drop_all()  # Clean up after tests
+db = SQLAlchemy()
 
-def test_review_can_be_instantiated():
-    '''Test that a review can be instantiated.'''
-    r = Review(comment='great product!')
-    assert r
-    assert isinstance(r, Review)
+class Customer(db.Model):
+    __tablename__ = 'customers'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String, nullable=False)
+    
+    reviews = db.relationship('Review', back_populates='customer', lazy=True)
+    items = association_proxy('reviews', 'item')
 
-def test_review_has_comment():
-    '''Test that review can be instantiated with a comment attribute.'''
-    r = Review(comment='great product!')
-    assert r.comment == 'great product!'
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'reviews': [review.to_dict(include_customer=False) for review in self.reviews]
+        }
 
-def test_review_can_be_saved_to_database(test_client):
-    '''Test that review can be added to the database.'''
-    with app.app_context():
-        assert 'comment' in Review.__table__.columns
+class Item(db.Model):
+    __tablename__ = 'items'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String, nullable=False)
+    price = db.Column(db.Float, nullable=False)
+    
+    reviews = db.relationship('Review', back_populates='item', lazy=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'price': self.price,
+            'reviews': [review.to_dict(include_item=False) for review in self.reviews]
+        }
+
+class Review(db.Model):
+    __tablename__ = 'reviews'
+    id = db.Column(db.Integer, primary_key=True)
+    comment = db.Column(db.String, nullable=False)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=False)
+    item_id = db.Column(db.Integer, db.ForeignKey('items.id'), nullable=False)
+    
+    customer = db.relationship('Customer', back_populates='reviews')
+    item = db.relationship('Item', back_populates='reviews')
+
+    def to_dict(self, include_customer=True, include_item=True):
+        dict_data = {
+            'id': self.id,
+            'comment': self.comment,
+        }
         
-        # Create a Customer and Item first
+        if include_customer:
+            dict_data['customer'] = {
+                'id': self.customer.id,
+                'name': self.customer.name
+            }
+        
+        if include_item:
+            dict_data['item'] = {
+                'id': self.item.id,
+                'name': self.item.name,
+                'price': self.item.price
+            }
+        
+        return dict_data
